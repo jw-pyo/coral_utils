@@ -132,7 +132,7 @@ def convert(obj, labels):
                   label=labels[obj.label_id] if labels else None,
                   score=obj.score,
                   bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0))
-def crop_with_bbox(tensor, bbox, resize=None):
+def crop_with_bbox(objs, tensor, resize=None):
     """
     crop the face image in input tensor.
     input:
@@ -143,11 +143,25 @@ def crop_with_bbox(tensor, bbox, resize=None):
         1-D flattened tensor only contains cropped face.
     """
     #TODO
-    return NotImplemented
+    ret = []
+    tensor_3d = np.reshape(tensor, (640, 480, 3))
+    for obj in objs:
+        x0, y0, x1, y1 = obj.bounding_box.flatten().tolist()
+        cropped = tensor_3d[x0:x1,y0:y1,:]
+        if resize:
+            img = Image.fromarray(np.uint8(cropped))
+            img = img.resize(resize, Image.NEAREST)
+            cropped_tensor = np.asarray(img).flatten()
+            ret.append(cropped_tensor)
+        else:
+            cropped = cropped.flatten()
+            ret.append(cropped)
+
+
+    return ret
 
 def print_results(inference_rate, objs):
     print('\nInference (rate=%.2f fps):' % inference_rate)
-    B
     for i, obj in enumerate(objs):
         print('    %d: %s, area=%.2f' % (i, obj, obj.bbox.area()))
 
@@ -177,8 +191,10 @@ def render_gen(args):
             #objs is DetectionCandidate
             objs = engine.DetectWithInputTensor(tensor, threshold=args.threshold, top_k=args.top_k)
             inference_time = time.monotonic() - start
-            objs = [convert(obj, labels) for obj in objs]
+            crop_with_bbox(objs, tensor, resize=(180, 180))
             import pdb; pdb.set_trace();
+
+            objs = [convert(obj, labels) for obj in objs]
             if labels and filtered_labels:
                 objs = [obj for obj in objs if obj.label in filtered_labels]
 
@@ -193,7 +209,6 @@ def render_gen(args):
             output = None
 
         if command == 'o':
-            C
             draw_overlay = not draw_overlay
         elif command == 'n':
             engine = next(engines)
