@@ -31,12 +31,17 @@ import collections
 import colorsys
 import itertools
 import time
+import numpy as np
+from PIL import Image
 
 from edgetpu.detection.engine import DetectionEngine
 
 from edgetpuvision import svg
 from edgetpuvision import utils
 from edgetpuvision.apps import run_app
+
+#custom library
+import facenet_tpu
 
 CSS_STYLES = str(svg.CssStyle({'.back': svg.Style(fill='black',
                                                   stroke='black',
@@ -132,7 +137,8 @@ def convert(obj, labels):
                   label=labels[obj.label_id] if labels else None,
                   score=obj.score,
                   bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0))
-def crop_with_bbox(objs, tensor, resize=None):
+    
+def crop_with_bbox(objs, tensor):
     """
     crop the face image in input tensor.
     input:
@@ -140,23 +146,17 @@ def crop_with_bbox(objs, tensor, resize=None):
         bbox: coordinate of bbox. range is [0,1]
         resize: (width, height) values that you want to resize the cropped face. Otherwise, assign it None
     returns:
-        1-D flattened tensor only contains cropped face.
+        list of PIL image only contains cropped face.
     """
     #TODO
     ret = []
-    tensor_3d = np.reshape(tensor, (640, 480, 3))
+    tensor_3d = np.reshape(tensor, (320, 320, 3)) #coral camera module's input size is 320 * 320
     for obj in objs:
         x0, y0, x1, y1 = obj.bounding_box.flatten().tolist()
+        x0, y0, x1, y1 = int(x0*320), int(y0*320), int(x1*320), int(y1*320)
         cropped = tensor_3d[x0:x1,y0:y1,:]
-        if resize:
-            img = Image.fromarray(np.uint8(cropped))
-            img = img.resize(resize, Image.NEAREST)
-            cropped_tensor = np.asarray(img).flatten()
-            ret.append(cropped_tensor)
-        else:
-            cropped = cropped.flatten()
-            ret.append(cropped)
-
+        img = Image.fromarray(np.uint8(cropped))    
+        ret.append(img)
 
     return ret
 
@@ -173,6 +173,9 @@ def render_gen(args):
     engines = itertools.cycle(engines)
     engine = next(engines)
 
+    #facenet engine
+    facenet = facenet_tpu.FacenetEngine("/home/mendel/facenet/my_facenet_1559026914_edgetpu.tflite")
+    facenet.ImportLabel(args.labels)
     labels = utils.load_labels(args.labels) if args.labels else None
     filtered_labels = set(l.strip() for l in args.filter.split(',')) if args.filter else None
     get_color = make_get_color(args.color, labels)
@@ -191,8 +194,12 @@ def render_gen(args):
             #objs is DetectionCandidate
             objs = engine.DetectWithInputTensor(tensor, threshold=args.threshold, top_k=args.top_k)
             inference_time = time.monotonic() - start
-            crop_with_bbox(objs, tensor, resize=(180, 180))
-            import pdb; pdb.set_trace();
+            cropped_faces = crop_with_bbox(objs, tensor)
+            for cropped_face in cropped_faces:
+                inf_time, ev = facenet.GetEmbeddingVector(cropped_face)
+                face_class = facenet.CompareEV(ev)
+                print("Embedding vector: {}".format(ev))
+                print("Inferenced class: {}".format(face_class))
 
             objs = [convert(obj, labels) for obj in objs]
             if labels and filtered_labels:

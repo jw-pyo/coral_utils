@@ -15,6 +15,16 @@ class FacenetEngine(ClassificationEngine):
             super().__init__(model_path, device_path)
         else:
             super().__init__(model_path)
+    def ImportLabel(self, label_file):
+        """
+        jwpyo, [1, 2, ... ]
+        """
+        self.label_dict = dict()
+        with open("r", label_file) as lf:
+            for line in lf:
+                class_name, ev = line.split(delimeter)
+                self.label_dict[class_name] = ev
+        print("Finishing importing label file.")
 
     def GetEmbeddingVector(self, img):
         """
@@ -26,7 +36,6 @@ class FacenetEngine(ClassificationEngine):
             inf_time: inference time from img to embedding vector
             result: embedding vector(512, 1)
         """
-        #TODO: resize the image size to 180*180
         input_tensor_shape = self.get_input_tensor_shape()
         _, height, width, _ = input_tensor_shape
         img = img.resize((width, height), Image.NEAREST)
@@ -35,7 +44,13 @@ class FacenetEngine(ClassificationEngine):
         inf_time, result = self.RunInference(input_tensor)
 
         return inf_time, result
-    
+    def CompareEV(self, ev):
+        """
+        compare the corresponding embedding vector with anchor class' vector.
+        returns:
+            class_obj: name of person
+        """
+        return NotImplemented
     @staticmethod
     def generate_svg(dwg, text_lines):
         for y, line in enumerate(text_lines):
