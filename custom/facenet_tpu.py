@@ -3,6 +3,7 @@ from edgetpu.utils.image_processing import ResamplingWithOriginalRatio
 import numpy as np
 from PIL import Image
 import argparse
+import math
 
 #import picamera, io
 import gstreamer, svgwrite, imp
@@ -15,16 +16,20 @@ class FacenetEngine(ClassificationEngine):
             super().__init__(model_path, device_path)
         else:
             super().__init__(model_path)
-    def ImportLabel(self, label_file):
+    def ImportLabel(self, label_file="/home/mendel/coral_utils/models/emb_array.csv"):
         """
         jwpyo, [1, 2, ... ]
         """
         self.label_dict = dict()
-        with open("r", label_file) as lf:
+        self.label_id = list()
+        with open(label_file, "r") as lf:
             for line in lf:
-                class_name, ev = line.split(delimeter)
+                class_name, raw_ev = line.split(" ")
+                ev = list(map(float, raw_ev.split(",")))
                 self.label_dict[class_name] = ev
+                self.label_id.append(class_name)
         print("Finishing importing label file.")
+        print(self.label_dict)
 
     def GetEmbeddingVector(self, img):
         """
@@ -44,13 +49,22 @@ class FacenetEngine(ClassificationEngine):
         inf_time, result = self.RunInference(input_tensor)
 
         return inf_time, result
-    def CompareEV(self, ev):
+    def CompareEV(self, ev, threshold=3.99):
         """
         compare the corresponding embedding vector with anchor class' vector.
         returns:
             class_obj: name of person
         """
         return NotImplemented
+    @staticmethod
+    def L2distance(v1, v2):
+        assert(len(v1) == len(v2))
+        dis = 0
+        for e1, e2 in zip(v1, v2):
+            e = (e1 - e2) ** 2
+            dis += e
+        return sqrt(dis)
+
     @staticmethod
     def generate_svg(dwg, text_lines):
         for y, line in enumerate(text_lines):

@@ -175,7 +175,8 @@ def render_gen(args):
 
     #facenet engine
     facenet = facenet_tpu.FacenetEngine("/home/mendel/facenet/my_facenet_1559026914_edgetpu.tflite")
-    facenet.ImportLabel(args.labels)
+    facenet.ImportLabel("/home/mendel/coral_utils/models/emb_array.csv")
+    import sys; sys.exit()
     labels = utils.load_labels(args.labels) if args.labels else None
     filtered_labels = set(l.strip() for l in args.filter.split(',')) if args.filter else None
     get_color = make_get_color(args.color, labels)
