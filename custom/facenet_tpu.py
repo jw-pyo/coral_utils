@@ -55,6 +55,16 @@ class FacenetEngine(ClassificationEngine):
         returns:
             class_obj: name of person
         """
+        inf_name = []
+        for name in self.label_id:
+            diff = np.subtract(self.label_dict[name], ev)
+            L2 = np.linalg.norm(diff) # sqrt(diff^2)
+            if L2 < threshold:
+                print("{}, L2 is {}".format(name, L2))
+                inf_name.append(name)
+        return inf_name
+
+        
         return NotImplemented
     @staticmethod
     def L2distance(v1, v2):

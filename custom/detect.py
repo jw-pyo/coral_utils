@@ -199,7 +199,7 @@ def render_gen(args):
             for cropped_face in cropped_faces:
                 inf_time, ev = facenet.GetEmbeddingVector(cropped_face)
                 face_class = facenet.CompareEV(ev)
-                print("Embedding vector: {}".format(ev))
+                #print("Embedding vector: {}".format(ev))
                 print("Inferenced class: {}".format(face_class))
 
             objs = [convert(obj, labels) for obj in objs]
