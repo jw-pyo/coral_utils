@@ -55,7 +55,7 @@ BBox.scale = lambda self, sx, sy: BBox(x=self.x * sx, y=self.y * sy,
                                        w=self.w * sx, h=self.h * sy)
 BBox.__str__ = lambda self: 'BBox(x=%.2f y=%.2f w=%.2f h=%.2f)' % self
 
-Object = collections.namedtuple('Object', ('id', 'label', 'score', 'bbox'))
+Object = collections.namedtuple('Object', ('id', 'label', 'score', 'bbox', 'face_class'))
 Object.__str__ = lambda self: 'Object(id=%d, label=%s, score=%.2f, %s)' % self
 
 def size_em(length):
@@ -92,9 +92,11 @@ def overlay(title, objs, get_color, inference_time, inference_rate, layout):
     for obj in objs:
         percent = int(100 * obj.score)
         if obj.label:
-            caption = '%d%% %s' % (percent, obj.label)
+            #caption = '%d%% %s' % (percent, obj.label)
+            caption = obj.face_class
         else:
-            caption = '%d%%' % percent
+            #caption = '%d%%' % percent
+            caption = obj.face_class
 
         x, y, w, h = obj.bbox.scale(*layout.size)
         color = get_color(obj.id)
@@ -131,12 +133,12 @@ def overlay(title, objs, get_color, inference_time, inference_rate, layout):
     return str(doc)
 
 
-def convert(obj, labels):
+def convert(obj, face_class=None, labels=None):
     x0, y0, x1, y1 = obj.bounding_box.flatten().tolist()
     return Object(id=obj.label_id,
                   label=labels[obj.label_id] if labels else None,
                   score=obj.score,
-                  bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0))
+                  bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0), face_class=face_class)
     
 def crop_with_bbox(objs, tensor):
     """
@@ -175,8 +177,7 @@ def render_gen(args):
 
     #facenet engine
     facenet = facenet_tpu.FacenetEngine("/home/mendel/facenet/my_facenet_1559026914_edgetpu.tflite")
-    facenet.ImportLabel("/home/mendel/coral_utils/models/emb_array.csv")
-    import sys; sys.exit()
+    facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt")
     labels = utils.load_labels(args.labels) if args.labels else None
     filtered_labels = set(l.strip() for l in args.filter.split(',')) if args.filter else None
     get_color = make_get_color(args.color, labels)
@@ -188,7 +189,6 @@ def render_gen(args):
     output = None
     while True:
         tensor, layout, command = (yield output)
-        print("tensor is : {}".format(tensor.shape))
         inference_rate = next(fps_counter)
         if draw_overlay:
             start = time.monotonic()
@@ -196,13 +196,15 @@ def render_gen(args):
             objs = engine.DetectWithInputTensor(tensor, threshold=args.threshold, top_k=args.top_k)
             inference_time = time.monotonic() - start
             cropped_faces = crop_with_bbox(objs, tensor)
-            for cropped_face in cropped_faces:
+            inferenced_face_class = []
+            for cropped_face, obj in zip(cropped_faces, objs):
                 inf_time, ev = facenet.GetEmbeddingVector(cropped_face)
                 face_class = facenet.CompareEV(ev)
                 #print("Embedding vector: {}".format(ev))
+                inferenced_face_class.append(face_class)
                 print("Inferenced class: {}".format(face_class))
 
-            objs = [convert(obj, labels) for obj in objs]
+            objs = [convert(obj, face_class, labels) for obj, face_class in zip(objs,inferenced_face_class)]
             if labels and filtered_labels:
                 objs = [obj for obj in objs if obj.label in filtered_labels]
 
