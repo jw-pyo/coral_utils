@@ -93,10 +93,10 @@ def overlay(title, objs, get_color, inference_time, inference_rate, layout):
         percent = int(100 * obj.score)
         if obj.label:
             #caption = '%d%% %s' % (percent, obj.label)
-            caption = obj.face_class
+            caption = [(name, obj.face_class[name]) for name in obj.face_class.keys()]
         else:
             #caption = '%d%%' % percent
-            caption = obj.face_class
+            caption = [(name, obj.face_class[name]) for name in obj.face_class.keys()]
 
         x, y, w, h = obj.bbox.scale(*layout.size)
         color = get_color(obj.id)
@@ -105,7 +105,7 @@ def overlay(title, objs, get_color, inference_time, inference_rate, layout):
                         style='stroke:%s' % color, _class='bbox')
         doc += svg.Rect(x=x, y=y+h ,
                         width=size_em(len(caption)), height='1.2em', fill=color)
-        t = svg.Text(x=x, y=y+h, fill='black')
+        t = svg.Text(x=x, y=y+h, fill='yellow')
         t += svg.TSpan(caption, dy='1em')
         doc += t
 
@@ -176,7 +176,7 @@ def render_gen(args):
     engine = next(engines)
 
     #facenet engine
-    facenet = facenet_tpu.FacenetEngine("/home/mendel/facenet/my_facenet_1559026914_edgetpu.tflite")
+    facenet = facenet_tpu.FacenetEngine("/home/mendel/facenet/my_facenet2_1559545916_edgetpu.tflite")
     facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt")
     labels = utils.load_labels(args.labels) if args.labels else None
     filtered_labels = set(l.strip() for l in args.filter.split(',')) if args.filter else None
@@ -199,7 +199,8 @@ def render_gen(args):
             inferenced_face_class = []
             for cropped_face, obj in zip(cropped_faces, objs):
                 inf_time, ev = facenet.GetEmbeddingVector(cropped_face)
-                face_class = facenet.CompareEV(ev)
+                #import pdb; pdb.set_trace();
+                face_class = facenet.CompareEV(ev, metric="manhattan", top_k=2) #OrderedDict
                 #print("Embedding vector: {}".format(ev))
                 inferenced_face_class.append(face_class)
                 print("Inferenced class: {}".format(face_class))

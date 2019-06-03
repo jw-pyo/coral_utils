@@ -5,6 +5,7 @@ from PIL import Image
 import argparse
 import math
 from functools import reduce
+from collections import OrderedDict
 #import picamera, io
 import gstreamer, svgwrite, imp
 import time
@@ -16,7 +17,7 @@ class FacenetEngine(ClassificationEngine):
             super().__init__(model_path, device_path)
         else:
             super().__init__(model_path)
-    def generate_labelfile(self, data_folder="/home/mendel/facenet/labmemberpic/", save_as="/home/mendel/coral_utils/labels.txt"):
+    def generate_labelfile(self, data_folder="/home/mendel/lab_face_data/", save_as="/home/mendel/coral_utils/models/labels.txt"):
         """
         generate embedding vector label file with corresponding directory.
         """
@@ -26,13 +27,19 @@ class FacenetEngine(ClassificationEngine):
             for name_folder in members:
                 images = glob.glob(name_folder+"/*")
                 avg_ev = np.zeros(512, )
+                i=0
                 for img_path in images:
+                    print(img_path)
                     img = Image.open(img_path)
                     _, ev = self.GetEmbeddingVector(img)
                     avg_ev = avg_ev + ev
-                    break
-                #avg_ev = avg_ev / len(images)
-                print(avg_ev)
+                    #img.close()
+                    i += 1
+                    if i % 15 == 0:
+                        break
+                print("finish")
+                avg_ev = avg_ev / len(images)
+                #print(avg_ev)
                 write_file.write(name_folder.split("/")[-1] + " ")
                 for i, elem in enumerate(avg_ev):
                     if i == len(avg_ev) - 1:
@@ -103,7 +110,9 @@ class FacenetEngine(ClassificationEngine):
         #print(input_tensor)
         #input_tensor = input_tensor/128.0 - 1
         inf_time, result = self.RunInference(input_tensor)
-        return inf_time, self.normalize(result, opt="linear", range_ab=(-1,1))
+        #import pdb; pdb.set_trace();
+        #return inf_time, self.normalize(result, opt="linear", range_ab=(-1,1))
+        return inf_time, result
 
     def rankdata(self, a):
         n = len(a)
@@ -123,26 +132,37 @@ class FacenetEngine(ClassificationEngine):
                 dupcount = 0
         return newarray 
     
-    def CompareEV(self, ev, threshold=3.99, top_k = 3):
+    def CompareEV(self, ev, threshold=3.99, metric="L2", top_k = 1):
         """
         compare the corresponding embedding vector with anchor class' vector.
         returns:
             class_obj: name of person
         """
-        inf_name = []
+        inf_result = OrderedDict()
         L2_list = []
+        print("jwpyo size, ", np.linalg.norm(self.label_dict["jwpyo"]))
+        print("jhlee size, ", np.linalg.norm(self.label_dict["jhlee"]))
+        print("ev size, ", np.linalg.norm(ev))
         for name in self.label_id:
-            diff = np.subtract(self.label_dict[name], ev)
-            #print(diff)
-            L2 = np.linalg.norm(diff) # sqrt(diff^2)
-            L2_list.append(L2)
-            if L2 < threshold:
-                print("{}, L2 is {}".format(name, L2))
+            if metric == "L2":
+                diff = np.subtract(self.label_dict[name], ev)
+                L2 = np.linalg.norm(diff) # sqrt(diff^2)
+                L2_list.append(L2)
+            elif metric == "cosine":
+                diff = np.multiply(self.label_dict[name], ev)
+                L2 = diff
+                L2_list.append(L2)
+            elif metric == "manhattan":
+                diff = np.subtract(self.label_dict[name], ev)
+                L2 = sum([abs(elem) for elem in diff])
+                L2_list.append(L2)
+            #if L2 < threshold:
+                #print("{}, L2 is {}".format(name, L2))
                 #inf_name.append(name)
         rank_list = [int(i) for i in self.rankdata(L2_list)]
         for i in range(top_k):
-            inf_name.append(self.label_id[rank_list.index(i+1)])
-        return inf_name
+            inf_result[self.label_id[rank_list.index(i+1)]] = float(round(L2_list[rank_list.index(i+1)], 2))
+        return inf_result
 
         
         return NotImplemented
