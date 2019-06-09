@@ -177,11 +177,11 @@ def render_gen(args):
 
     #facenet engine
     facenet = facenet_tpu.FacenetEngine("/home/mendel/facenet/my_facenet2_1559545916_edgetpu.tflite")
-    facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt")
+    facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt", import_all=False)
     labels = utils.load_labels(args.labels) if args.labels else None
     filtered_labels = set(l.strip() for l in args.filter.split(',')) if args.filter else None
     get_color = make_get_color(args.color, labels)
-
+    new_class_list = ["jwpyo1", "jwpyo2", "jwpyo3"]
     draw_overlay = True
 
     yield utils.input_image_size(engine)
@@ -193,14 +193,25 @@ def render_gen(args):
         if draw_overlay:
             start = time.monotonic()
             #objs is DetectionCandidate
+            ## input as image, not camera ##
+            
+            """
+            input_img = Image.open("/home/mendel/facenet/labmemberpic/hrjeon/KakaoTalk_20190527_183421875.png")
+            input_img = input_img.resize((320,320), Image.ANTIALIAS)
+            input_img_ = np.array(input_img).flatten()
+            objs = engine.DetectWithInputTensor(input_img_, threshold=args.threshold, top_k=args.top_k)
+            inference_time = time.monotonic() - start
+            cropped_faces = crop_with_bbox(objs, input_img_)
+            """ 
             objs = engine.DetectWithInputTensor(tensor, threshold=args.threshold, top_k=args.top_k)
             inference_time = time.monotonic() - start
             cropped_faces = crop_with_bbox(objs, tensor)
             inferenced_face_class = []
             for cropped_face, obj in zip(cropped_faces, objs):
                 inf_time, ev = facenet.GetEmbeddingVector(cropped_face)
+                print(np.linalg.norm(ev))
                 #import pdb; pdb.set_trace();
-                face_class = facenet.CompareEV(ev, metric="manhattan", top_k=2) #OrderedDict
+                face_class = facenet.CompareEV(ev, metric="L2", top_k=2) #OrderedDict
                 #print("Embedding vector: {}".format(ev))
                 inferenced_face_class.append(face_class)
                 print("Inferenced class: {}".format(face_class))
@@ -223,6 +234,25 @@ def render_gen(args):
             draw_overlay = not draw_overlay
         elif command == 'n':
             engine = next(engines)
+        elif command == 'c': #capture
+            #new_class_name = str(input("Class name? "))
+            try:
+                new_class_name = new_class_list.pop(0)
+                face_tensor = cropped_faces[0]
+                facenet.label_id[len(facenet.label_dict)] = new_class_name
+                facenet.label_dict[new_class_name] = ev.tolist()
+                print("new class {} is updated. ev size is {}".format(new_class_name, np.linalg.norm(ev)))
+                print(facenet.label_id)
+                for i in facenet.label_id.keys():
+                    name = facenet.label_id[i]
+                    print("{} ev : {}".format(name, facenet.label_dict[name][0:3]))
+            except:
+                print("insert new class name and keep going")
+                pass
+
+
+        elif command == 'q':
+            import sys; sys.exit()
 
 def add_render_gen_args(parser):
     parser.add_argument('--model',

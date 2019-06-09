@@ -1,4 +1,5 @@
 from edgetpu.classification.engine import ClassificationEngine
+from edgetpu.detection.engine import DetectionEngine
 from edgetpu.utils.image_processing import ResamplingWithOriginalRatio 
 import numpy as np
 from PIL import Image
@@ -17,9 +18,10 @@ class FacenetEngine(ClassificationEngine):
             super().__init__(model_path, device_path)
         else:
             super().__init__(model_path)
-    def generate_labelfile(self, data_folder="/home/mendel/lab_face_data/", save_as="/home/mendel/coral_utils/models/labels.txt"):
+    def generate_labelfile(self, data_folder="/home/mendel/facenet/front_face/", save_as="/home/mendel/coral_utils/models/labels.txt", avg_only=True, per_class_img_num=5):
         """
         generate embedding vector label file with corresponding directory.
+        If avg_only is False, write down every embedding vector as label file.
         """
         import glob
         members = glob.glob(data_folder+"*")
@@ -32,44 +34,99 @@ class FacenetEngine(ClassificationEngine):
                     print(img_path)
                     img = Image.open(img_path)
                     _, ev = self.GetEmbeddingVector(img)
-                    avg_ev = avg_ev + ev
+                    print("ev size is {}".format(np.linalg.norm(ev)))
+                    if avg_only is False:
+                        write_file.write(name_folder.split("/")[-1] + " ")
+                        for i, elem in enumerate(ev):
+                            if i == len(avg_ev) - 1:
+                                write_file.write(str(elem))
+                            else:
+                                write_file.write(str(elem)+ ",")
+                            write_file.write("\n")
+                    else:
+                        avg_ev = avg_ev + ev
                     #img.close()
                     i += 1
-                    if i % 15 == 0:
+                    if i % per_class_img_num == 0:
                         break
-                print("finish")
-                avg_ev = avg_ev / len(images)
-                #print(avg_ev)
-                write_file.write(name_folder.split("/")[-1] + " ")
-                for i, elem in enumerate(avg_ev):
-                    if i == len(avg_ev) - 1:
-                        write_file.write(str(elem))
-                    else:
-                        write_file.write(str(elem)+ ",")
-                write_file.write("\n")
+                if avg_only is True:
+                    avg_ev = avg_ev / per_class_img_num
+                    #normalize
+                    #avg_ev = avg_ev / np.linalg.norm(avg_ev)
+                    write_file.write(name_folder.split("/")[-1] + " ")
+                    for i, elem in enumerate(avg_ev):
+                        if i == len(avg_ev) - 1:
+                            write_file.write(str(elem))
+                        else:
+                            write_file.write(str(elem)+ ",")
+                    write_file.write("\n")
 
-    def ImportLabel(self, label_file="/home/mendel/coral_utils/models/labels.txt"):
+    def ImportLabel(self, label_file="/home/mendel/coral_utils/models/labels.txt", import_all = False):
         """
         jwpyo, [1, 2, ... ]
+        If import_all is True, import all of face datas. IF not, import average of face datas.
         """
+
         self.label_dict = dict()
-        self.label_id = list()
+        self.label_id = dict()
+        if import_all is True:
+            self.data_factory = list()
         with open(label_file, "r") as lf:
             for line in lf:
                 class_name, raw_ev = line.split(" ")
                 ev = list(map(float, raw_ev.split(",")))
-                self.label_dict[class_name] = ev
-                self.label_id.append(class_name)
+                if import_all:
+                    self.data_factory.append(tuple(ev, class_name))
+                else:
+                    self.label_id[len(self.label_dict)] = class_name
+                    self.label_dict[class_name] = ev
         #check if it is unit vector
-        for name in self.label_id:
-            vector_sum = np.sum(np.square(self.label_dict[name]))
-            if vector_sum != 1.0:
-                print("{} is not unit vector, {}".format(name, vector_sum))
-        for name in self.label_id:
-            diff = np.sum(np.square(np.subtract(self.label_dict[name], self.label_dict["jwpyo"])))
-            print("Diff with {} and jwpyo: {}".format(name, diff))
+        for i in self.label_id.keys():
+            name = self.label_id[i]
+            vector_mse = np.linalg.norm(self.label_dict[name])
+            if vector_mse != 1.0:
+                print("{} is not unit vector, {}".format(name, vector_mse))
+        #for name in self.label_id:
+        #    diff = np.sum(np.square(np.subtract(self.label_dict[name], self.label_dict["jwpyo"])))
+        #    print("Diff with {} and jwpyo: {}".format(name, diff))
         print("Finishing importing label file.")
         #print(self.label_dict)
+    def crop_face(self, input_img):
+        try:
+            from edgetpu.detection.engine import DetectionEngine
+        except:
+            print("Cannot import detection library.")
+            raise 
+        def crop_with_bbox(objs, tensor):
+            """
+            crop the face image in input tensor.
+            input:
+                tensor: 1-D flattened camera input
+                bbox: coordinate of bbox. range is [0,1]
+                resize: (width, height) values that you want to resize the cropped face. Otherwise, assign it None
+            returns:
+                list of PIL image only contains cropped face.
+            """
+            #TODO
+            ret = []
+            tensor_3d = np.reshape(tensor, (320, 320, 3)) #coral camera module's input size is 320 * 320
+            for obj in objs:
+                x0, y0, x1, y1 = obj.bounding_box.flatten().tolist()
+                x0, y0, x1, y1 = int(x0*320), int(y0*320), int(x1*320), int(y1*320)
+                cropped = tensor_3d[x0:x1,y0:y1,:]
+                img = Image.fromarray(np.uint8(cropped))    
+                ret.append(img)
+
+            return ret
+        engine = DetectionEngine("/home/mendel/facenet/mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite")
+        img_pil = Image.open(input_img)
+        origin_h, origin_w = img_pil.size[1], img_pil.size[0]
+        print(origin_h, origin_w)
+        img_tensor = np.array(img_pil).flatten()
+        objs = engine.DetectWithInputTensor(img_tensor, threshold=10.0, top_k=3)
+        cropped_faces = crop_with_bbox(objs, img_tensor)
+        return cropped_faces
+    
     def get_mean_std(self, input_tensor):
         num = reduce(lambda x, y: x * y, input_tensor.shape)
         mean = np.sum(input_tensor) / num
@@ -79,6 +136,7 @@ class FacenetEngine(ClassificationEngine):
     def normalize(self, input_tensor, opt="normal", range_ab=None):
         if opt == "normal":
             mean, std = self.get_mean_std(input_tensor)
+            print("mean: {}, std: {}".format(mean, std))
         elif opt == "linear":
             """
             normalize variables to [a, b]
@@ -87,21 +145,21 @@ class FacenetEngine(ClassificationEngine):
             min_element, max_element = min(input_tensor), max(input_tensor)
             input_tensor = (b - a)*(input_tensor - min_element)/(max_element - min_element) + a
             return input_tensor
-        return (input_tensor - mean) / std + 0.5
+        return (input_tensor - mean) / std
 
     def GetEmbeddingVector(self, img):
         """
         Returns embedding vector from PIL image.
         inputs:
-            img: PIL Image type(180 * 180 * 3)
-
+            img: PIL Image type(any * any * 3)
+            (resized img may be 160* 160)
         returns:
             inf_time: inference time from img to embedding vector
             result: embedding vector(512, 1)
         """
         input_tensor_shape = self.get_input_tensor_shape()
         _, height, width, _ = input_tensor_shape
-        img = img.resize((width, height), Image.NEAREST)
+        img = img.resize((width, height), Image.BILINEAR)
         input_tensor = np.asarray(img).flatten()
         #input_tensor = (self.normalize(input_tensor, opt="normal", range_ab=(0,255)) * 255).astype(np.uint8)
         #print("input tensor is {}".format(input_tensor))
@@ -111,7 +169,10 @@ class FacenetEngine(ClassificationEngine):
         #input_tensor = input_tensor/128.0 - 1
         inf_time, result = self.RunInference(input_tensor)
         #import pdb; pdb.set_trace();
-        #return inf_time, self.normalize(result, opt="linear", range_ab=(-1,1))
+        #print(result[0:100])
+        #print(self.normalize(result, opt="normal")[0:100])
+        #import pdb;pdb.set_trace();
+        #return inf_time, self.normalize(result, opt="normal")
         return inf_time, result
 
     def rankdata(self, a):
@@ -132,7 +193,7 @@ class FacenetEngine(ClassificationEngine):
                 dupcount = 0
         return newarray 
     
-    def CompareEV(self, ev, threshold=3.99, metric="L2", top_k = 1):
+    def CompareEV(self, ev, threshold=0.5, metric="L2", top_k = 1):
         """
         compare the corresponding embedding vector with anchor class' vector.
         returns:
@@ -140,10 +201,10 @@ class FacenetEngine(ClassificationEngine):
         """
         inf_result = OrderedDict()
         L2_list = []
-        print("jwpyo size, ", np.linalg.norm(self.label_dict["jwpyo"]))
-        print("jhlee size, ", np.linalg.norm(self.label_dict["jhlee"]))
-        print("ev size, ", np.linalg.norm(ev))
-        for name in self.label_id:
+        #print("jwpyo size, ", np.linalg.norm(self.label_dict["jwpyo"]))
+        #print("jhlee size, ", np.linalg.norm(self.label_dict["jhlee"]))
+        for i in self.label_id.keys():
+            name = self.label_id[i]
             if metric == "L2":
                 diff = np.subtract(self.label_dict[name], ev)
                 L2 = np.linalg.norm(diff) # sqrt(diff^2)
@@ -160,12 +221,36 @@ class FacenetEngine(ClassificationEngine):
                 #print("{}, L2 is {}".format(name, L2))
                 #inf_name.append(name)
         rank_list = [int(i) for i in self.rankdata(L2_list)]
+        print("L2_list: {}".format(L2_list))
+        print("rank_list: {}".format(rank_list))
         for i in range(top_k):
-            inf_result[self.label_id[rank_list.index(i+1)]] = float(round(L2_list[rank_list.index(i+1)], 2))
+            try:
+                inf_result[self.label_id[rank_list.index(i+1)]] = float(round(L2_list[rank_list.index(i+1)], 4))
+            except ValueError:
+                pass
+
         return inf_result
 
+    def classify(self, classifier_path="/home/mendel/facenet/lab_classifier.pkl"):
+        """
+        print('Testing classifier')
+        with open(classifier_path, 'rb') as infile:
+            (model, class_names) = pickle.load(infile)
+
+        print('Loaded classifier model from file "%s"' % classifier_path)
+
+        predictions = model.predict_proba(emb_array)
+        best_class_indices = np.argmax(predictions, axis=1)
+        best_class_probabilities = predictions[np.arange(len(best_class_indices)), best_class_indices]
         
+        for i in range(len(best_class_indices)):
+            print('%4d  %s: %.3f' % (i, class_names[best_class_indices[i]], best_class_probabilities[i]))
+            
+        accuracy = np.mean(np.equal(best_class_indices, labels))
+        print('Accuracy: %.3f' % accuracy)
+        """
         return NotImplemented
+    
     @staticmethod
     def L2distance(v1, v2):
         assert(len(v1) == len(v2))
@@ -220,6 +305,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
       '--model', help='File path of Tflite model.', required=True)
+    parser.add_argument(
+      '--label-make', help="Make label file", required=False, type=bool)
     args = parser.parse_args()
 
     engine = FacenetEngine(args.model, None)
@@ -234,7 +321,11 @@ def main():
         engine.generate_svg(svg_canvas, text_lines)
     result = gstreamer.run_pipeline(user_callback)
     """
-    #engine.generate_labelfile()
+    if args.label_make == True:
+        engine.generate_labelfile(avg_only=True, per_class_img_num=1)
+        import sys; sys.exit();
+    #engine.classify()
+    #engine.crop_face("/home/mendel/facenet/labmemberpic/jwpyo/IMG_20190208_085727.jpg")
     engine.Camera()
     
 
