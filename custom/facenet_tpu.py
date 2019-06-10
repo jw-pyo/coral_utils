@@ -18,7 +18,7 @@ class FacenetEngine(ClassificationEngine):
             super().__init__(model_path, device_path)
         else:
             super().__init__(model_path)
-    def generate_labelfile(self, data_folder="/home/mendel/facenet/front_face/", save_as="/home/mendel/coral_utils/models/labels.txt", avg_only=True, per_class_img_num=5):
+    def generate_labelfile(self, data_folder="/home/mendel/facenet/lab_member_mtcnnpy_182/", save_as="/home/mendel/coral_utils/models/labels.txt", avg_only=True, per_class_img_num=5):
         """
         generate embedding vector label file with corresponding directory.
         If avg_only is False, write down every embedding vector as label file.
@@ -42,7 +42,7 @@ class FacenetEngine(ClassificationEngine):
                                 write_file.write(str(elem))
                             else:
                                 write_file.write(str(elem)+ ",")
-                            write_file.write("\n")
+                        write_file.write("\n")
                     else:
                         avg_ev = avg_ev + ev
                     #img.close()
@@ -52,7 +52,7 @@ class FacenetEngine(ClassificationEngine):
                 if avg_only is True:
                     avg_ev = avg_ev / per_class_img_num
                     #normalize
-                    #avg_ev = avg_ev / np.linalg.norm(avg_ev)
+                    avg_ev = avg_ev / np.linalg.norm(avg_ev)
                     write_file.write(name_folder.split("/")[-1] + " ")
                     for i, elem in enumerate(avg_ev):
                         if i == len(avg_ev) - 1:
@@ -61,7 +61,7 @@ class FacenetEngine(ClassificationEngine):
                             write_file.write(str(elem)+ ",")
                     write_file.write("\n")
 
-    def ImportLabel(self, label_file="/home/mendel/coral_utils/models/labels.txt", import_all = False):
+    def ImportLabel(self, label_file="/home/mendel/coral_utils/models/labels.txt", knn=False):
         """
         jwpyo, [1, 2, ... ]
         If import_all is True, import all of face datas. IF not, import average of face datas.
@@ -69,14 +69,14 @@ class FacenetEngine(ClassificationEngine):
 
         self.label_dict = dict()
         self.label_id = dict()
-        if import_all is True:
+        if knn is True:
             self.data_factory = list()
         with open(label_file, "r") as lf:
             for line in lf:
                 class_name, raw_ev = line.split(" ")
                 ev = list(map(float, raw_ev.split(",")))
-                if import_all:
-                    self.data_factory.append(tuple(ev, class_name))
+                if knn:
+                    self.data_factory.append((ev, class_name))
                 else:
                     self.label_id[len(self.label_dict)] = class_name
                     self.label_dict[class_name] = ev
@@ -173,7 +173,7 @@ class FacenetEngine(ClassificationEngine):
         #print(self.normalize(result, opt="normal")[0:100])
         #import pdb;pdb.set_trace();
         #return inf_time, self.normalize(result, opt="normal")
-        return inf_time, result
+        return inf_time, result/np.linalg.norm(result)
 
     def rankdata(self, a):
         n = len(a)
@@ -201,36 +201,73 @@ class FacenetEngine(ClassificationEngine):
         """
         inf_result = OrderedDict()
         L2_list = []
+        L2_name = []
         #print("jwpyo size, ", np.linalg.norm(self.label_dict["jwpyo"]))
         #print("jhlee size, ", np.linalg.norm(self.label_dict["jhlee"]))
-        for i in self.label_id.keys():
-            name = self.label_id[i]
-            if metric == "L2":
-                diff = np.subtract(self.label_dict[name], ev)
-                L2 = np.linalg.norm(diff) # sqrt(diff^2)
+        if len(self.data_factory) > 0:
+            for anchor_vec, name in self.data_factory:
+                diff = np.subtract(anchor_vec, ev)
+                L2 = np.linalg.norm(diff)
                 L2_list.append(L2)
-            elif metric == "cosine":
-                diff = np.multiply(self.label_dict[name], ev)
-                L2 = diff
-                L2_list.append(L2)
-            elif metric == "manhattan":
-                diff = np.subtract(self.label_dict[name], ev)
-                L2 = sum([abs(elem) for elem in diff])
-                L2_list.append(L2)
-            #if L2 < threshold:
-                #print("{}, L2 is {}".format(name, L2))
-                #inf_name.append(name)
-        rank_list = [int(i) for i in self.rankdata(L2_list)]
-        print("L2_list: {}".format(L2_list))
-        print("rank_list: {}".format(rank_list))
+                L2_name.append(name)
+            rank_list = [int(i) for i in self.rankdata(L2_list)]
+            #print("L2_list: {}".format(L2_list))
+            #print("rank_list: {}".format(rank_list))
+        
+        else: 
+            for i in self.label_id.keys():
+                name = self.label_id[i]
+                if metric == "L2":
+                    diff = np.subtract(self.label_dict[name], ev)
+                    L2 = np.linalg.norm(diff) # sqrt(diff^2)
+                    L2_list.append(L2)
+                elif metric == "cosine":
+                    diff = np.multiply(self.label_dict[name], ev)
+                    L2 = diff
+                    L2_list.append(L2)
+                elif metric == "manhattan":
+                    diff = np.subtract(self.label_dict[name], ev)
+                    L2 = sum([abs(elem) for elem in diff])
+                    L2_list.append(L2)
+                #if L2 < threshold:
+                    #print("{}, L2 is {}".format(name, L2))
+                    #inf_name.append(name)
+            rank_list = [int(i) for i in self.rankdata(L2_list)]
+            print("L2_list: {}".format(L2_list))
+            print("rank_list: {}".format(rank_list))
         for i in range(top_k):
             try:
-                inf_result[self.label_id[rank_list.index(i+1)]] = float(round(L2_list[rank_list.index(i+1)], 4))
+                if len(self.data_factory) > 0:
+                    top_k_results = [] # list for top-k distance and name
+                    indices = self.list_index(rank_list, i+1)
+                    for k in indices:
+                        top_k_results.append((L2_name[k], float(round(L2_list[k], 4))))
+                        if L2_name[k] in inf_result:
+                            inf_result[L2_name[k]] += 1
+                        else:
+                            inf_result[L2_name[k]] = 1
+                else:
+                    indices = self.list_index(rank_list, i+1)
+                    for k in indices:
+                        #inf_result[self.label_id[rank_list.index(i+1)]] = float(round(L2_list[rank_list.index(i+1)], 4))
+                        inf_result[self.label_id[k]] = float(round(L2_list[k], 4))
             except ValueError:
                 pass
 
         return inf_result
-
+    @staticmethod
+    def list_index(seq, item):
+        start_at = -1
+        locs = []
+        while True:
+            try:
+                loc = seq.index(item, start_at + 1)
+            except ValueError:
+                break
+            else:
+                locs.append(loc)
+                start_at = loc
+        return locs
     def classify(self, classifier_path="/home/mendel/facenet/lab_classifier.pkl"):
         """
         print('Testing classifier')
@@ -322,7 +359,7 @@ def main():
     result = gstreamer.run_pipeline(user_callback)
     """
     if args.label_make == True:
-        engine.generate_labelfile(avg_only=True, per_class_img_num=1)
+        engine.generate_labelfile(avg_only=False, per_class_img_num=10)
         import sys; sys.exit();
     #engine.classify()
     #engine.crop_face("/home/mendel/facenet/labmemberpic/jwpyo/IMG_20190208_085727.jpg")

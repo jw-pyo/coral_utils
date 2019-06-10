@@ -177,7 +177,7 @@ def render_gen(args):
 
     #facenet engine
     facenet = facenet_tpu.FacenetEngine("/home/mendel/facenet/my_facenet2_1559545916_edgetpu.tflite")
-    facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt", import_all=False)
+    facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt", knn=True)
     labels = utils.load_labels(args.labels) if args.labels else None
     filtered_labels = set(l.strip() for l in args.filter.split(',')) if args.filter else None
     get_color = make_get_color(args.color, labels)
@@ -209,9 +209,8 @@ def render_gen(args):
             inferenced_face_class = []
             for cropped_face, obj in zip(cropped_faces, objs):
                 inf_time, ev = facenet.GetEmbeddingVector(cropped_face)
-                print(np.linalg.norm(ev))
                 #import pdb; pdb.set_trace();
-                face_class = facenet.CompareEV(ev, metric="L2", top_k=2) #OrderedDict
+                face_class = facenet.CompareEV(ev, metric="L2", top_k=10) #OrderedDict
                 #print("Embedding vector: {}".format(ev))
                 inferenced_face_class.append(face_class)
                 print("Inferenced class: {}".format(face_class))
