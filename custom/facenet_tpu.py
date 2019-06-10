@@ -10,6 +10,10 @@ from collections import OrderedDict
 #import picamera, io
 import gstreamer, svgwrite, imp
 import time
+import copy
+
+from utils.facenet_custom import Utils
+
 
 class FacenetEngine(ClassificationEngine):
 
@@ -26,36 +30,37 @@ class FacenetEngine(ClassificationEngine):
         import glob
         members = glob.glob(data_folder+"*")
         with open(save_as, "w") as write_file:
+            output_shape = self.get_all_output_tensors_sizes()
+            print("output shape" ,output_shape)
             for name_folder in members:
                 images = glob.glob(name_folder+"/*")
-                avg_ev = np.zeros(512, )
+                avg_ev = np.zeros(output_shape[0], ) #[128,1] or [512,1]
                 i=0
                 for img_path in images:
                     print(img_path)
                     img = Image.open(img_path)
-                    _, ev = self.GetEmbeddingVector(img)
-                    print("ev size is {}".format(np.linalg.norm(ev)))
+                    _, _, ev = self.GetEmbeddingVector(img)
                     if avg_only is False:
                         write_file.write(name_folder.split("/")[-1] + " ")
-                        for i, elem in enumerate(ev):
-                            if i == len(avg_ev) - 1:
+                        for j, elem in enumerate(ev):
+                            if j == len(avg_ev) - 1:
                                 write_file.write(str(elem))
                             else:
                                 write_file.write(str(elem)+ ",")
                         write_file.write("\n")
                     else:
                         avg_ev = avg_ev + ev
-                    #img.close()
                     i += 1
-                    if i % per_class_img_num == 0:
+                    if i == per_class_img_num:
+                        print("break")
                         break
                 if avg_only is True:
                     avg_ev = avg_ev / per_class_img_num
                     #normalize
                     avg_ev = avg_ev / np.linalg.norm(avg_ev)
                     write_file.write(name_folder.split("/")[-1] + " ")
-                    for i, elem in enumerate(avg_ev):
-                        if i == len(avg_ev) - 1:
+                    for j, elem in enumerate(avg_ev):
+                        if j == len(avg_ev) - 1:
                             write_file.write(str(elem))
                         else:
                             write_file.write(str(elem)+ ",")
@@ -69,23 +74,27 @@ class FacenetEngine(ClassificationEngine):
 
         self.label_dict = dict()
         self.label_id = dict()
+        #for KNN
+        self.data_factory = list()
         if knn is True:
-            self.data_factory = list()
-        with open(label_file, "r") as lf:
-            for line in lf:
-                class_name, raw_ev = line.split(" ")
-                ev = list(map(float, raw_ev.split(",")))
-                if knn:
+            with open(label_file, "r") as lf:
+                for line in lf:
+                    class_name, raw_ev = line.split(" ")
+                    ev = list(map(float, raw_ev.split(",")))
                     self.data_factory.append((ev, class_name))
-                else:
+        else:
+            with open(label_file, "r") as lf:
+                for line in lf:
+                    class_name, raw_ev = line.split(" ")
+                    ev = list(map(float, raw_ev.split(",")))
                     self.label_id[len(self.label_dict)] = class_name
                     self.label_dict[class_name] = ev
-        #check if it is unit vector
-        for i in self.label_id.keys():
-            name = self.label_id[i]
-            vector_mse = np.linalg.norm(self.label_dict[name])
-            if vector_mse != 1.0:
-                print("{} is not unit vector, {}".format(name, vector_mse))
+            #check if it is unit vector
+            for i in self.label_id.keys():
+                name = self.label_id[i]
+                vector_mse = np.linalg.norm(self.label_dict[name])
+                if vector_mse != 1.0:
+                    print("{} is not unit vector, {}".format(name, vector_mse))
         #for name in self.label_id:
         #    diff = np.sum(np.square(np.subtract(self.label_dict[name], self.label_dict["jwpyo"])))
         #    print("Diff with {} and jwpyo: {}".format(name, diff))
@@ -125,6 +134,7 @@ class FacenetEngine(ClassificationEngine):
         img_tensor = np.array(img_pil).flatten()
         objs = engine.DetectWithInputTensor(img_tensor, threshold=10.0, top_k=3)
         cropped_faces = crop_with_bbox(objs, img_tensor)
+        return NotImplemented
         return cropped_faces
     
     def get_mean_std(self, input_tensor):
@@ -153,12 +163,15 @@ class FacenetEngine(ClassificationEngine):
         inputs:
             img: PIL Image type(any * any * 3)
             (resized img may be 160* 160)
+            normalize(stored_value): return unit vector if it is True
         returns:
             inf_time: inference time from img to embedding vector
             result: embedding vector(512, 1)
         """
+        NORMALIZE = True
         input_tensor_shape = self.get_input_tensor_shape()
         _, height, width, _ = input_tensor_shape
+        output_tensor_shape = self.get_all_output_tensors_sizes()
         img = img.resize((width, height), Image.BILINEAR)
         input_tensor = np.asarray(img).flatten()
         #input_tensor = (self.normalize(input_tensor, opt="normal", range_ab=(0,255)) * 255).astype(np.uint8)
@@ -168,12 +181,10 @@ class FacenetEngine(ClassificationEngine):
         #print(input_tensor)
         #input_tensor = input_tensor/128.0 - 1
         inf_time, result = self.RunInference(input_tensor)
-        #import pdb; pdb.set_trace();
-        #print(result[0:100])
-        #print(self.normalize(result, opt="normal")[0:100])
-        #import pdb;pdb.set_trace();
-        #return inf_time, self.normalize(result, opt="normal")
-        return inf_time, result/np.linalg.norm(result)
+        if NORMALIZE:
+            return inf_time, img, result / np.linalg.norm(result)
+        else:
+            return inf_time, img, result
 
     def rankdata(self, a):
         n = len(a)
@@ -199,7 +210,7 @@ class FacenetEngine(ClassificationEngine):
         returns:
             class_obj: name of person
         """
-        inf_result = OrderedDict()
+        inf_result = dict()
         L2_list = []
         L2_name = []
         #print("jwpyo size, ", np.linalg.norm(self.label_dict["jwpyo"]))
@@ -235,39 +246,35 @@ class FacenetEngine(ClassificationEngine):
             rank_list = [int(i) for i in self.rankdata(L2_list)]
             print("L2_list: {}".format(L2_list))
             print("rank_list: {}".format(rank_list))
-        for i in range(top_k):
+        
+        if len(self.data_factory) > 0:
             try:
-                if len(self.data_factory) > 0:
+                for i in range(top_k):
                     top_k_results = [] # list for top-k distance and name
-                    indices = self.list_index(rank_list, i+1)
+                    indices = Utils.list_index(rank_list, i+1)
                     for k in indices:
                         top_k_results.append((L2_name[k], float(round(L2_list[k], 4))))
                         if L2_name[k] in inf_result:
                             inf_result[L2_name[k]] += 1
                         else:
                             inf_result[L2_name[k]] = 1
-                else:
-                    indices = self.list_index(rank_list, i+1)
-                    for k in indices:
-                        #inf_result[self.label_id[rank_list.index(i+1)]] = float(round(L2_list[rank_list.index(i+1)], 4))
-                        inf_result[self.label_id[k]] = float(round(L2_list[k], 4))
+                print(inf_result)
+                ret = inf_result.copy()
+                
+                for key in inf_result:
+                    if ret[key] < threshold:
+                        del ret[key]
+                return ret
             except ValueError:
                 pass
+        else:
+            for i in range(top_k):
+                indices = Utils.list_index(rank_list, i+1)
+                for k in indices:
+                    #inf_result[self.label_id[rank_list.index(i+1)]] = float(round(L2_list[rank_list.index(i+1)], 4))
+                    inf_result[self.label_id[k]] = float(round(L2_list[k], 4))
 
         return inf_result
-    @staticmethod
-    def list_index(seq, item):
-        start_at = -1
-        locs = []
-        while True:
-            try:
-                loc = seq.index(item, start_at + 1)
-            except ValueError:
-                break
-            else:
-                locs.append(loc)
-                start_at = loc
-        return locs
     def classify(self, classifier_path="/home/mendel/facenet/lab_classifier.pkl"):
         """
         print('Testing classifier')
@@ -288,32 +295,17 @@ class FacenetEngine(ClassificationEngine):
         """
         return NotImplemented
     
-    @staticmethod
-    def L2distance(v1, v2):
-        assert(len(v1) == len(v2))
-        dis = 0
-        for e1, e2 in zip(v1, v2):
-            e = (e1 - e2) ** 2
-            dis += e
-        return sqrt(dis)
-
-    @staticmethod
-    def generate_svg(dwg, text_lines):
-        for y, line in enumerate(text_lines):
-            dwg.add(dwg.text(line, insert=(11, (y+1)*20+1), fill='white', font_size='20'))
-            dwg.add(dwg.text(line, insert=(11, (y+1)*20), fill='white', font_size='20'))
-    
     def Camera(self, camera_module="gstream"):
         
         if camera_module == "gstream":
             
             def user_callback(img, svg_canvas):
-                results = self.GetEmbeddingVector(img)
+                inf_time,_,ev = self.GetEmbeddingVector(img)
                 text_lines = [
-                    "Embedding vector: {}".format(results[1]),
-                    "Inference time: {} ms".format(results[0])
+                    "Embedding vector: {}".format(ev),
+                    "Inference time: {} ms".format(inf_time)
                 ]
-                self.generate_svg(svg_canvas, text_lines)
+                Utils.generate_svg(svg_canvas, text_lines)
             result = gstreamer.run_pipeline(user_callback)
         """
         elif camera_module == "picamera":
@@ -359,10 +351,16 @@ def main():
     result = gstreamer.run_pipeline(user_callback)
     """
     if args.label_make == True:
-        engine.generate_labelfile(avg_only=False, per_class_img_num=10)
+        engine.generate_labelfile(avg_only=False, per_class_img_num=1)
         import sys; sys.exit();
     #engine.classify()
     #engine.crop_face("/home/mendel/facenet/labmemberpic/jwpyo/IMG_20190208_085727.jpg")
+    img = Image.open("/home/mendel/facenet/lfw_mtcnnalign_160/Zorica_Radovic/Zorica_Radovic_0001.png")
+    _, _, ev = engine.GetEmbeddingVector(img)
+    for elem in ev.tolist():
+        print(elem, ev.tolist().count(elem))
+    print(len(list(set(ev))))
+    import sys; sys.exit();
     engine.Camera()
     
 
