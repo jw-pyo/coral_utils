@@ -34,6 +34,8 @@ import time
 import numpy as np
 from PIL import Image
 from collections import OrderedDict
+from datetime import datetime
+
 
 from edgetpu.detection.engine import DetectionEngine
 
@@ -191,9 +193,8 @@ def render_gen(args):
     get_color = make_get_color(args.color, labels)
     new_class_list = ["jwpyo1", "jwpyo2", "jwpyo3"]
     draw_overlay = True
-    capture_index = 0
     yield utils.input_image_size(engine)
-
+    
     output = None
     while True:
         tensor, layout, command = (yield output)
@@ -247,15 +248,13 @@ def render_gen(args):
             #try:
             new_class_name = new_class_list.pop(0)
             face_tensor = cropped_faces[0]
-            cropped_img.save("/home/mendel/facenet/labmemberpic/"+new_class_name+"/capture%03d.jpg" % (capture_index))
-            capture_index += 1
+            cap_time = datetime.now().microsecond
+            # save captured cropped face in capture_{timestamp}.jpg
+            cropped_img.save("/home/mendel/facenet/labmemberpic/"+new_class_name+"/capture_%d.jpg" % (cap_time))
             facenet.label_id[len(facenet.label_dict)] = new_class_name
             facenet.label_dict[new_class_name] = ev.tolist()
-            print("new class {} is updated. ev size is {}".format(new_class_name, np.linalg.norm(ev)))
-            print(facenet.label_id)
-            for i in facenet.label_id.keys():
-                name = facenet.label_id[i]
-                print("{} ev : {}".format(name, facenet.label_dict[name][0:3]))
+            
+            print("new class '{}' is updated. label id: {}, ev size: {}".format(new_class_name, len(facenet.label_dict)-1, np.linalg.norm(ev)))
             #except:
             #    print("insert new class name and keep going")
             #    pass
