@@ -22,11 +22,12 @@ class FacenetEngine(ClassificationEngine):
             super().__init__(model_path, device_path)
         else:
             super().__init__(model_path)
-    def generate_labelfile(self, data_folder="/home/mendel/facenet/lab_member_mtcnnpy_182/", save_as="/home/mendel/coral_utils/models/labels.txt", avg_only=True, per_class_img_num=5):
+    def generate_labelfile(self, data_folder="/home/mendel/facenet/lfw_mtcnnalign_160_ab/", save_as="/home/mendel/coral_utils/models/labels.txt", avg_only=True, per_class_img_num=5):
         """
         generate embedding vector label file with corresponding directory.
         If avg_only is False, write down every embedding vector as label file.
         """
+        NORMALIZE = False
         import glob
         members = glob.glob(data_folder+"*")
         with open(save_as, "w") as write_file:
@@ -37,9 +38,9 @@ class FacenetEngine(ClassificationEngine):
                 avg_ev = np.zeros(output_shape[0], ) #[128,1] or [512,1]
                 i=0
                 for img_path in images:
-                    print(img_path)
                     img = Image.open(img_path)
                     _, _, ev = self.GetEmbeddingVector(img)
+                    print(img_path)
                     if avg_only is False:
                         write_file.write(name_folder.split("/")[-1] + " ")
                         for j, elem in enumerate(ev):
@@ -57,7 +58,8 @@ class FacenetEngine(ClassificationEngine):
                 if avg_only is True:
                     avg_ev = avg_ev / per_class_img_num
                     #normalize
-                    avg_ev = avg_ev / np.linalg.norm(avg_ev)
+                    if NORMALIZE:
+                        avg_ev = avg_ev / np.linalg.norm(avg_ev)
                     write_file.write(name_folder.split("/")[-1] + " ")
                     for j, elem in enumerate(avg_ev):
                         if j == len(avg_ev) - 1:
@@ -137,6 +139,13 @@ class FacenetEngine(ClassificationEngine):
         return NotImplemented
         return cropped_faces
     
+    def prewhiten(self, x):
+        mean = np.mean(x)
+        std = np.std(x)
+        std_adj = np.maximum(std, 1.0/np.sqrt(x.size))
+        y = np.multiply(np.subtract(x, mean), 1/std_adj)
+        return y
+    
     def get_mean_std(self, input_tensor):
         num = reduce(lambda x, y: x * y, input_tensor.shape)
         mean = np.sum(input_tensor) / num
@@ -168,20 +177,30 @@ class FacenetEngine(ClassificationEngine):
             inf_time: inference time from img to embedding vector
             result: embedding vector(512, 1)
         """
-        NORMALIZE = True
+        IMAGE_PREWHITEN = False
+        VECTOR_NORMALIZE = True
+
         input_tensor_shape = self.get_input_tensor_shape()
         _, height, width, _ = input_tensor_shape
         output_tensor_shape = self.get_all_output_tensors_sizes()
+        # resize
         img = img.resize((width, height), Image.BILINEAR)
         input_tensor = np.asarray(img).flatten()
+        #print(input_tensor[0:10])
+        if IMAGE_PREWHITEN:
+            input_tensor = self.prewhiten(input_tensor)
+            input_tensor = np.asarray([int((k/0.015686275)+64) for k in input_tensor_], dtype=np.uint8) 
+        #print(input_tensor_[0:10])
+        #import pdb; pdb.set_trace()
         #input_tensor = (self.normalize(input_tensor, opt="normal", range_ab=(0,255)) * 255).astype(np.uint8)
         #print("input tensor is {}".format(input_tensor))
         #dequantize from uint8[0, 255] to float32 [-1, 1]
         #input_tensor = (np.float32(input_tensor) - 127.5) / 128.0
         #print(input_tensor)
         #input_tensor = input_tensor/128.0 - 1
+        #print("??")
         inf_time, result = self.RunInference(input_tensor)
-        if NORMALIZE:
+        if VECTOR_NORMALIZE:
             return inf_time, img, result / np.linalg.norm(result)
         else:
             return inf_time, img, result
@@ -357,9 +376,11 @@ def main():
     #engine.crop_face("/home/mendel/facenet/labmemberpic/jwpyo/IMG_20190208_085727.jpg")
     img = Image.open("/home/mendel/facenet/lfw_mtcnnalign_160/Zorica_Radovic/Zorica_Radovic_0001.png")
     _, _, ev = engine.GetEmbeddingVector(img)
-    for elem in ev.tolist():
-        print(elem, ev.tolist().count(elem))
-    print(len(list(set(ev))))
+    
+    print("Embedding vector: ", ev)
+    #print("Embedding vector value's statistic: ")
+    #for elem in ev.tolist():
+    #    print(str(elem), str(ev.tolist().count(elem)))
     import sys; sys.exit();
     engine.Camera()
     

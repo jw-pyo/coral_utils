@@ -182,19 +182,19 @@ def render_gen(args):
     facenet = facenet_tpu.FacenetEngine(args.facenet_model)
     if args.label_make == True:
         if args.knn == True:
-            facenet.generate_labelfile(avg_only=False, per_class_img_num=8)
-            print("hahahahaah")
+            facenet.generate_labelfile(avg_only=False, per_class_img_num=10)
         else:
-            facenet.generate_labelfile(avg_only=True, per_class_img_num=8)
+            facenet.generate_labelfile(avg_only=True, per_class_img_num=1)
     print("KNN: ", args.knn) 
     facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt", knn=args.knn)
     labels = utils.load_labels(args.labels) if args.labels else None
     filtered_labels = set(l.strip() for l in args.filter.split(',')) if args.filter else None
     get_color = make_get_color(args.color, labels)
-    new_class_list = ["jwpyo1", "jwpyo2", "jwpyo3"]
     draw_overlay = True
     yield utils.input_image_size(engine)
     
+    if args.register:
+        new_class_name = input("type the new class' name: ") 
     output = None
     while True:
         tensor, layout, command = (yield output)
@@ -219,7 +219,7 @@ def render_gen(args):
             for cropped_face, obj in zip(cropped_faces, objs):
                 inf_time, cropped_img, ev = facenet.GetEmbeddingVector(cropped_face)
                 #import pdb; pdb.set_trace();
-                face_class = facenet.CompareEV(ev, metric="L2", threshold=0.4, top_k=3) #OrderedDict
+                face_class = facenet.CompareEV(ev, metric="L2", threshold=1.0, top_k=5) #OrderedDict
                 #print("Embedding vector: {}".format(ev))
                 sort_class = OrderedDict(sorted(face_class.items(), key=lambda kv: kv[1], reverse=(args.knn)))
                 inferenced_face_class.append(sort_class)
@@ -245,19 +245,18 @@ def render_gen(args):
         elif command == 'n':
             engine = next(engines)
         elif command == 'c': #capture
-            #try:
-            new_class_name = new_class_list.pop(0)
-            face_tensor = cropped_faces[0]
-            cap_time = datetime.now().microsecond
-            # save captured cropped face in capture_{timestamp}.jpg
-            cropped_img.save("/home/mendel/facenet/labmemberpic/"+new_class_name+"/capture_%d.jpg" % (cap_time))
-            facenet.label_id[len(facenet.label_dict)] = new_class_name
-            facenet.label_dict[new_class_name] = ev.tolist()
-            
-            print("new class '{}' is updated. label id: {}, ev size: {}".format(new_class_name, len(facenet.label_dict)-1, np.linalg.norm(ev)))
-            #except:
-            #    print("insert new class name and keep going")
-            #    pass
+            try:
+                face_tensor = cropped_faces[0]
+                cap_time = datetime.now().microsecond
+                # save captured cropped face in capture_{timestamp}.jpg
+                cropped_img.save("/home/mendel/facenet/labmemberpic/"+new_class_name+"/capture_%d.jpg" % (cap_time))
+                facenet.label_id[len(facenet.label_dict)] = new_class_name
+                facenet.label_dict[new_class_name] = ev.tolist()
+                
+                print("new class '{}' is updated. label id: {}, ev size: {}".format(new_class_name, len(facenet.label_dict)-1, np.linalg.norm(ev)))
+            except IndexError:
+                print("No face is detected. Cannot register the new face class and save image.")
+                pass
 
 
         elif command == 'q':
@@ -272,7 +271,7 @@ def add_render_gen_args(parser):
     parser.add_argument('--detection_model',
                         help='.tflite model path', default="/home/mendel/facenet/mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite")
     parser.add_argument('--facenet_model',
-                        help='.tflite model path', default="/home/mendel/facenet/my_facenet5_1560164375_edgetpu.tflite")
+                        help='.tflite model path', default="/home/mendel/facenet/weight/facenet_128_ptq_-1_6_128_128_QUANT_QUANT_1560396534_edgetpu.tflite")
     parser.add_argument('--labels',
                         help='labels file path')
     parser.add_argument(
@@ -293,6 +292,8 @@ def add_render_gen_args(parser):
                         help='Bounding box display color'),
     parser.add_argument('--print', default=False, action='store_true',
                         help='Print inference results')
+    parser.add_argument('--register', default=False,
+                        help="Save cropped face as an image")
 
 def main():
     run_app(add_render_gen_args, render_gen)
