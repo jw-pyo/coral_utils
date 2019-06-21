@@ -8,11 +8,12 @@ import math
 from functools import reduce
 from collections import OrderedDict
 #import picamera, io
-import gstreamer, svgwrite, imp
+import svgwrite, imp
+from custom import gstreamer
 import time
 import copy
 
-from utils.facenet_custom import Utils
+from custom.utils.facenet_utils import Utils
 
 
 class FacenetEngine(ClassificationEngine):
@@ -97,11 +98,13 @@ class FacenetEngine(ClassificationEngine):
                 vector_mse = np.linalg.norm(self.label_dict[name])
                 if vector_mse != 1.0:
                     print("{} is not unit vector, {}".format(name, vector_mse))
-        #for name in self.label_id:
-        #    diff = np.sum(np.square(np.subtract(self.label_dict[name], self.label_dict["jwpyo"])))
-        #    print("Diff with {} and jwpyo: {}".format(name, diff))
+        """
+        for name in self.label_id:
+            diff = np.sum(np.square(np.subtract(self.label_dict[name], self.label_dict["jwpyo"])))
+            print("Diff with {} and jwpyo: {}".format(name, diff))
+        """
         print("Finishing importing label file.")
-        #print(self.label_dict)
+    
     def crop_face(self, input_img):
         try:
             from edgetpu.detection.engine import DetectionEngine
@@ -205,24 +208,6 @@ class FacenetEngine(ClassificationEngine):
         else:
             return inf_time, img, result
 
-    def rankdata(self, a):
-        n = len(a)
-        ivec=sorted(range(len(a)), key=a.__getitem__)
-        svec=[a[rank] for rank in ivec]
-        sumranks = 0
-        dupcount = 0
-        newarray = [0]*n
-        for i in range(n):
-            sumranks += i
-            dupcount += 1
-            if i==n-1 or svec[i] != svec[i+1]:
-                averank = sumranks / float(dupcount) + 1
-                for j in range(i-dupcount+1,i+1):
-                    newarray[ivec[j]] = averank
-                sumranks = 0
-                dupcount = 0
-        return newarray 
-    
     def CompareEV(self, ev, threshold=0.5, metric="L2", top_k = 1):
         """
         compare the corresponding embedding vector with anchor class' vector.
@@ -240,7 +225,7 @@ class FacenetEngine(ClassificationEngine):
                 L2 = np.linalg.norm(diff)
                 L2_list.append(L2)
                 L2_name.append(name)
-            rank_list = [int(i) for i in self.rankdata(L2_list)]
+            rank_list = [int(i) for i in Utils.rankdata(L2_list)]
             #print("L2_list: {}".format(L2_list))
             #print("rank_list: {}".format(rank_list))
         
@@ -262,7 +247,7 @@ class FacenetEngine(ClassificationEngine):
                 #if L2 < threshold:
                     #print("{}, L2 is {}".format(name, L2))
                     #inf_name.append(name)
-            rank_list = [int(i) for i in self.rankdata(L2_list)]
+            rank_list = [int(i) for i in Utils.rankdata(L2_list)]
             print("L2_list: {}".format(L2_list))
             print("rank_list: {}".format(rank_list))
         
@@ -326,28 +311,6 @@ class FacenetEngine(ClassificationEngine):
                 ]
                 Utils.generate_svg(svg_canvas, text_lines)
             result = gstreamer.run_pipeline(user_callback)
-        """
-        elif camera_module == "picamera":
-            with picamera.PiCamera() as camera:
-                camera.resolution = (640, 480)
-                camera.framerate = 30
-                _, width, height, channels = self.get_input_tensor_shape()
-                camera.start_preview()
-                try:
-                    stream = io.BytesIO()
-                    for foo in camera.capture_continuous(stream,
-                                                         format='rgb',
-                                                         use_video_port=True,
-                                                         resize=(width, height)):
-                        stream.truncate()
-                        stream.seek(0)
-                        input = np.frombuffer(stream.getvalue(), dtype=np.uint8)
-                        results = self.GetEmbeddingVector(input)
-                        if results:
-                            camera.annotate_text = "Embedding vector: {}, elapsed time: {} ms".format(results[1], results[0])
-                finally:
-                    camera.stop_preview()
-        """
 
 def main():
     parser = argparse.ArgumentParser()
@@ -358,17 +321,7 @@ def main():
     args = parser.parse_args()
 
     engine = FacenetEngine(args.model, None)
-    """
-    def user_callback(img, svg_canvas):
-        results = engine.GetEmbeddingVector(img)
-        text_lines = [
-            "Embedding vector: {}".format(results[1][0]),
-            "Inference time: {} ms".format(results[0])
-        ]
-        print(" ".join(text_lines))
-        engine.generate_svg(svg_canvas, text_lines)
-    result = gstreamer.run_pipeline(user_callback)
-    """
+    
     if args.label_make == True:
         engine.generate_labelfile(avg_only=False, per_class_img_num=1)
         import sys; sys.exit();
