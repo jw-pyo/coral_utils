@@ -3,3 +3,4 @@ custom/__pycache__/*
 *.swo
 *.pyc
 __pycache__/*
+edgetpuvision/__pycache__/*
