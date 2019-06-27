@@ -23,7 +23,7 @@ class FacenetEngine(ClassificationEngine):
             super().__init__(model_path, device_path)
         else:
             super().__init__(model_path)
-    def generate_labelfile(self, data_folder="/home/mendel/facenet/lfw_mtcnnalign_160_ab/", save_as="/home/mendel/coral_utils/models/labels.txt", avg_only=True, per_class_img_num=5):
+    def generate_labelfile(self, data_folder="/home/mendel/facenet/lab_member_mtcnnpy_182/", save_as="/home/mendel/coral_utils/models/labels.txt", avg_only=True, per_class_img_num=5):
         """
         generate embedding vector label file with corresponding directory.
         If avg_only is False, write down every embedding vector as label file.
@@ -180,7 +180,7 @@ class FacenetEngine(ClassificationEngine):
             inf_time: inference time from img to embedding vector
             result: embedding vector(512, 1)
         """
-        IMAGE_PREWHITEN = False
+        PER_IMAGE_STANDARIZATION = False
         VECTOR_NORMALIZE = True
 
         input_tensor_shape = self.get_input_tensor_shape()
@@ -190,9 +190,9 @@ class FacenetEngine(ClassificationEngine):
         img = img.resize((width, height), Image.BILINEAR)
         input_tensor = np.asarray(img).flatten()
         #print(input_tensor[0:10])
-        if IMAGE_PREWHITEN:
+        if PER_IMAGE_STANDARIZATION:
             input_tensor = self.prewhiten(input_tensor)
-            input_tensor = np.asarray([int((k/0.015686275)+64) for k in input_tensor_], dtype=np.uint8) 
+            input_tensor = np.asarray([int((k*128)+128) for k in input_tensor_], dtype=np.uint8) 
         #print(input_tensor_[0:10])
         #import pdb; pdb.set_trace()
         #input_tensor = (self.normalize(input_tensor, opt="normal", range_ab=(0,255)) * 255).astype(np.uint8)
@@ -327,9 +327,15 @@ def main():
         import sys; sys.exit();
     #engine.classify()
     #engine.crop_face("/home/mendel/facenet/labmemberpic/jwpyo/IMG_20190208_085727.jpg")
+    img_test = Image.open("/home/mendel/facenet/lfw_mtcnnalign_160/Zorica_Radovic/Zorica_Radovic_0001.png")
+    _, _, ev_test = engine.GetEmbeddingVector(img_test)
+    start = time.time()
     img = Image.open("/home/mendel/facenet/lfw_mtcnnalign_160/Zorica_Radovic/Zorica_Radovic_0001.png")
-    _, _, ev = engine.GetEmbeddingVector(img)
+    _,_, ev = engine.GetEmbeddingVector(img)
     
+    dist = np.linalg.norm(np.subtract(ev_test, ev))
+    end = time.time()
+    print("Inference time is {}".format(end-start))
     print("Embedding vector: ", ev)
     #print("Embedding vector value's statistic: ")
     #for elem in ev.tolist():

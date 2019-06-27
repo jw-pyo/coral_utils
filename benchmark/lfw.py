@@ -39,6 +39,7 @@ def evaluate(embeddings, actual_issame, nrof_folds=10, distance_metric=0, subtra
     thresholds = np.arange(0, 4, 0.01)
     embeddings1 = embeddings[0::2]
     embeddings2 = embeddings[1::2]
+    print("LFW evaluate")
     tpr, fpr, accuracy = Utils.calculate_roc(thresholds, embeddings1, embeddings2,
         np.asarray(actual_issame), nrof_folds=nrof_folds, subtract_mean=subtract_mean)
     thresholds = np.arange(0, 4, 0.001)

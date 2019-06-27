@@ -53,6 +53,7 @@ class Utils():
     def calculate_roc(thresholds, embeddings1, embeddings2, actual_issame, nrof_folds=10, subtract_mean=False): # erase the distance metric
         assert(embeddings1.shape[0] == embeddings2.shape[0])
         assert(embeddings1.shape[1] == embeddings2.shape[1])
+        print("Calculate ROC")
         nrof_pairs = min(len(actual_issame), embeddings1.shape[0])
         nrof_thresholds = len(thresholds)
         #TODOTODOTODO
@@ -97,6 +98,7 @@ class Utils():
     def calculate_val(thresholds, embeddings1, embeddings2, actual_issame, far_target, nrof_folds=10, distance_metric=0, subtract_mean=False):
         assert(embeddings1.shape[0] == embeddings2.shape[0])
         assert(embeddings1.shape[1] == embeddings2.shape[1])
+        print("Calculate VAL")
         nrof_pairs = min(len(actual_issame), embeddings1.shape[0])
         nrof_thresholds = len(thresholds)
         k_fold = [], []
@@ -134,7 +136,7 @@ class Utils():
                 threshold = 0.0
         
             val[fold_idx], far[fold_idx] = Utils.calculate_val_far(threshold, dist[test_set], actual_issame[test_set])
-      
+            print("threshold is {}".format(threshold))  
         val_mean = np.mean(val)
         far_mean = np.mean(far)
         val_std = np.std(val)

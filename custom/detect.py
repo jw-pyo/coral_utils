@@ -78,7 +78,7 @@ def make_get_color(color, labels):
         palette = make_palette(labels.keys())
         return lambda obj_id: palette[obj_id]
 
-    return lambda obj_id: 'white'
+    return lambda obj_id: 'red'
 
 def overlay(title, objs, get_color, inference_time, inference_rate, layout):
     x0, y0, width, height = layout.window
@@ -108,7 +108,7 @@ def overlay(title, objs, get_color, inference_time, inference_rate, layout):
                         style='stroke:%s' % color, _class='bbox')
         doc += svg.Rect(x=x, y=y+h ,
                         width=size_em(len(caption)), height='1.2em', fill=color)
-        t = svg.Text(x=x, y=y+h, fill='yellow')
+        t = svg.Text(x=x, y=y+h, fill='green')
         t += svg.TSpan(caption, dy='1em')
         doc += t
 
@@ -182,9 +182,9 @@ def render_gen(args):
     facenet = facenet_tpu.FacenetEngine(args.facenet_model)
     if args.label_make == True:
         if args.knn == True:
-            facenet.generate_labelfile(avg_only=False, per_class_img_num=10)
+            facenet.generate_labelfile(data_folder=args.dataset_dir, avg_only=False, per_class_img_num=10)
         else:
-            facenet.generate_labelfile(avg_only=True, per_class_img_num=1)
+            facenet.generate_labelfile(data_folder=args.dataset_dir, avg_only=True, per_class_img_num=1)
     print("KNN: ", args.knn) 
     facenet.ImportLabel("/home/mendel/coral_utils/models/labels.txt", knn=args.knn)
     labels = utils.load_labels(args.labels) if args.labels else None
@@ -194,7 +194,8 @@ def render_gen(args):
     yield utils.input_image_size(engine)
     
     if args.register:
-        new_class_name = input("type the new class' name: ") 
+        new_class_name = "newclass"
+    new_class_name = "newclass"
     output = None
     while True:
         tensor, layout, command = (yield output)
@@ -271,7 +272,9 @@ def add_render_gen_args(parser):
     parser.add_argument('--detection_model',
                         help='.tflite model path', default="/home/mendel/facenet/mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite")
     parser.add_argument('--facenet_model',
-                        help='.tflite model path', default="/home/mendel/facenet/weight/facenet_128_ptq_-1_6_128_128_QUANT_QUANT_1560396534_edgetpu.tflite")
+                        help='.tflite model path', default="/home/mendel/facenet/weight/q_aware_tl_facenet_128_-1_6_127.5_128_1561629955_edgetpu.tflite")
+    parser.add_argument('--dataset_dir',
+                        help='dataset dir to make label', default="/home/mendel/facenet/lab_member_mtcnnpy_182/")
     parser.add_argument('--labels',
                         help='labels file path')
     parser.add_argument(

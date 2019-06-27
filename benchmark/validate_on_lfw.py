@@ -58,6 +58,7 @@ FLIP = 16
 def main(args):
   
     # Read the file containing the pairs used for testing
+    print(args)
     pairs = lfw.read_pairs(os.path.expanduser(args.lfw_pairs))
 
     # Get the paths for the corresponding images
@@ -80,16 +81,27 @@ def main(args):
     #TODO: change the dummy vector into real embedding
     #embeddings = [facenet.GetEmbeddingVector(Image.open(path)) for path in paths]              
     embeddings=None
-    if args.emb_file:
-        emb_file = open("emb_lfw_mtcnnalign_160.txt", "a")
+    if args.generate_emb_file:
+        emb_filename = "emb_{}.txt".format(args.lfw_dir.split("/")[-2])
+        print("emb_file is {}".format(emb_filename))
+        emb_file = open(emb_filename, "a")
         emb_file.write("[")
         for i, path in enumerate(paths):
             inf_time,_,emb = facenet.GetEmbeddingVector(Image.open(path))
-            emb_file.write(str(emb)+",\n")
+            emb_file.write("[")
+            for j, elem in enumerate(emb):
+                if j == len(emb) - 1:
+                    emb_file.write(str(elem))
+                else:
+                    emb_file.write(str(elem)+", ")
+            if i == len(paths) - 1:
+                emb_file.write(str(emb)+"]\n")
+            else:
+                emb_file.write(str(emb)+"],\n")
             print("time, index: ",str(inf_time)+"ms", str(i))
         emb_file.write("]")
         emb_file.close()
-        emb_file = open("emb_lfw_mtcnnalign_160.txt", "r")
+        emb_file = open(emb_filename, "r")
         embeddings = ast.literal_eval(emb_file.read())
         emb_file.close()
     else:
@@ -148,6 +160,7 @@ def evaluate(engine, embeddings, image_paths, actual_issame, batch_size, nrof_fo
         embeddings = emb_array
 
     assert np.array_equal(lab_array, np.arange(nrof_images))==True, 'Wrong labels used for evaluation, possibly caused by training examples left in the input pipeline'
+    print("embeddings shape: {}".format(embeddings.shape))
     tpr, fpr, accuracy, val, val_std, far = lfw.evaluate(embeddings, actual_issame, nrof_folds=nrof_folds, distance_metric=distance_metric, subtract_mean=subtract_mean)
     
     print('Accuracy: %2.5f+-%2.5f' % (np.mean(accuracy), np.std(accuracy)))
@@ -163,13 +176,25 @@ def evaluate(engine, embeddings, image_paths, actual_issame, batch_size, nrof_fo
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
+    #==================
+    #
+    # ==NON-DEFAULT====
+    #
+    #==================
     
-    parser.add_argument('lfw_dir', type=str,
+    parser.add_argument('--lfw_dir', type=str,
         help='Path to the data directory containing aligned LFW face patches.')
+    parser.add_argument('--model', type=str, 
+        help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf (.pb) file')
     parser.add_argument('--lfw_batch_size', type=int,
         help='Number of images to process in a batch in the LFW test set.', default=100)
-    parser.add_argument('model', type=str, 
-        help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf (.pb) file')
+    parser.add_argument('--generate_emb_file', 
+        help='True if you want to generate embedding file. ex) If you want to validate tflite model, you use this option to dump ev files from tflite model', type=bool)
+    #==================
+    #
+    # =====DEFAULT=====
+    #
+    #==================
     parser.add_argument('--image_size', type=int,
         help='Image size (height, width) in pixels.', default=160)
     parser.add_argument('--lfw_pairs', type=str,
@@ -184,8 +209,6 @@ def parse_arguments(argv):
         help='Subtract feature mean before calculating distance.', action='store_true')
     parser.add_argument('--use_fixed_image_standardization', 
         help='Performs fixed standardization of images.', action='store_true')
-    parser.add_argument('--emb_file', 
-        help='', type=bool)
     return parser.parse_args(argv)
 
 if __name__ == '__main__':
